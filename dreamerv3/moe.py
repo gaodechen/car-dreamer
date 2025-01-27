@@ -106,6 +106,9 @@ class MoE(nj.Module):
         self._inputs = nets.Input(inputs, dims=dims)
         self._kw = kw
 
+        distkeys = ("dist", "outscale", "minstd", "maxstd", "outnorm", "unimix", "bins")
+        self._dist = {k: v for k, v in kw.items() if k in distkeys}
+
         self._gate_config = {
             "moe_dim": moe_dim,
             "n_routed_experts": n_routed_experts,
@@ -115,6 +118,9 @@ class MoE(nj.Module):
             "score_func": score_func,
             "route_scale": route_scale,
         }
+
+    def _out(self, name, shape, x):
+        return self.get(f"dist_{name}", nets.Dist, shape, **self._dist)(x)
 
     def __call__(self, x):
         x = self._inputs(x)
@@ -126,23 +132,31 @@ class MoE(nj.Module):
         for i in range(self._n_routed_experts):
             counts = counts.at[i].set(jnp.sum(indices == i))
 
-        def process_expert(i, accumulator):
-            mask = jnp.any(indices == i, axis=-1)
+        experts = []
+        for i in range(self._n_routed_experts):
             expert = self.get(f"expert_{i}", MoEExpert, self._moe_dim, self._moe_inter_dim, **self._kw)
+            experts.append(expert)
+
+        y = jnp.zeros_like(x, dtype=f32)
+
+        for i, expert in enumerate(experts):
+            mask = jnp.any(indices == i, axis=-1)
 
             masked_input = jnp.where(mask[..., None], x, 0)
             out = expert(masked_input).astype(f32)
             multiplier = jnp.sum(jnp.where(indices == i, weights, 0), axis=-1)
 
-            return accumulator + out * multiplier[..., None]
+            y += out * multiplier[..., None]
 
-        y = jax.lax.fori_loop(0, self._n_routed_experts, process_expert, jnp.zeros_like(x).astype(f32))
-
-        # Shared experts (always active)
         if self._n_shared_experts > 0:
             shared_expert = self.get("shared_expert", MoEExpert, self._moe_dim, self._moe_inter_dim * self._n_shared_experts, **self._kw)
             y = y + shared_expert(x)
 
-        if self._shape:
-            return self.get("dist", nets.Dist, self._shape, **self._kw)(y)
-        return y
+        if self._shape is None:
+            return y
+        elif isinstance(self._shape, tuple):
+            return self._out("out", self._shape, y)
+        elif isinstance(self._shape, dict):
+            return {k: self._out(k, v, y) for k, v in self._shape.items()}
+        else:
+            raise ValueError(self._shape)
