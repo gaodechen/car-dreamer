@@ -18,6 +18,7 @@ logger.addFilter(CheckTypesFilter())
 
 from . import behaviors, jaxagent, jaxutils, nets
 from . import ninjax as nj
+from . import moe
 
 
 @jaxagent.Wrapper
@@ -134,9 +135,22 @@ class WorldModel(nj.Module):
         shapes = {k: v for k, v in shapes.items() if not k.startswith("log_")}
         self.encoder = nets.MultiEncoder(shapes, **config.encoder, name="enc")
         self.rssm = nets.RSSM(**config.rssm, name="rssm")
+
+        if config.reward_head.moe_enabled:
+            print("[MoE] Using MoE reward head")
+            rew_head = moe.MoE(
+                name="rew",
+                shape=(),
+                dim=config.rssm.deter,
+                **config.moe,
+                **config.reward_head,
+            )
+        else:
+            rew_head = nets.MLP((), **config.reward_head, name="rew")
+
         self.heads = {
             "decoder": nets.MultiDecoder(shapes, **config.decoder, name="dec"),
-            "reward": nets.MLP((), **config.reward_head, name="rew"),
+            "reward": rew_head,
             "cont": nets.MLP((), **config.cont_head, name="cont"),
         }
         self.opt = jaxutils.Optimizer(name="model_opt", **config.model_opt)
@@ -275,13 +289,26 @@ class ImagActorCritic(nj.Module):
         self.config = config
         disc = act_space.discrete
         self.grad = config.actor_grad_disc if disc else config.actor_grad_cont
-        self.actor = nets.MLP(
-            name="actor",
-            dims="deter",
-            shape=act_space.shape,
-            **config.actor,
-            dist=config.actor_dist_disc if disc else config.actor_dist_cont,
-        )
+
+        if config.actor.moe_enabled:
+            print("[MoE] Using MoE actor")
+            self.actor = moe.MoE(
+                name="actor",
+                dim=config.rssm.deter,
+                shape=act_space.shape,
+                **config.moe,
+                **config.actor,
+                dist=config.actor_dist_disc if disc else config.actor_dist_cont,
+            )
+        else:
+            self.actor = nets.MLP(
+                name="actor",
+                dims="deter",
+                shape=act_space.shape,
+                **config.actor,
+                dist=config.actor_dist_disc if disc else config.actor_dist_cont,
+            )
+
         self.retnorms = {k: jaxutils.Moments(**config.retnorm, name=f"retnorm_{k}") for k in critics}
         self.opt = jaxutils.Optimizer(name="actor_opt", **config.actor_opt)
 
@@ -360,15 +387,22 @@ class VFunction(nj.Module):
     def __init__(self, rewfn, config):
         self.rewfn = rewfn
         self.config = config
-        self.net = nets.MLP((), name="net", dims="deter", **self.config.critic)
-        self.slow = nets.MLP((), name="slow", dims="deter", **self.config.critic)
+
+        if config.critic.moe_enabled:
+            print("[MoE] Using MoE critic")
+            self.net = moe.MoE(name="net", shape=(), dim=config.rssm.deter, **config.moe, **config.critic)
+            self.slow = moe.MoE(name="slow", shape=(), dim=config.rssm.deter, **config.moe, **config.critic)
+        else:
+            self.net = nets.MLP((), name="net", dims="deter", **config.critic)
+            self.slow = nets.MLP((), name="slow", dims="deter", **config.critic)
+
         self.updater = jaxutils.SlowUpdater(
             self.net,
             self.slow,
-            self.config.slow_critic_fraction,
-            self.config.slow_critic_update,
+            config.slow_critic_fraction,
+            config.slow_critic_update,
         )
-        self.opt = jaxutils.Optimizer(name="critic_opt", **self.config.critic_opt)
+        self.opt = jaxutils.Optimizer(name="critic_opt", **config.critic_opt)
 
     def train(self, traj, actor):
         target = sg(self.score(traj)[1])
