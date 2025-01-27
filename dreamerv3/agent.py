@@ -136,12 +136,11 @@ class WorldModel(nj.Module):
         self.encoder = nets.MultiEncoder(shapes, **config.encoder, name="enc")
         self.rssm = nets.RSSM(**config.rssm, name="rssm")
 
-        if config.reward_head.moe_enabled:
+        if config.moe.reward_moe:
             print("[MoE] Using MoE reward head")
             rew_head = moe.MoE(
                 name="rew",
                 shape=(),
-                dim=config.rssm.deter,
                 **config.moe,
                 **config.reward_head,
             )
@@ -290,11 +289,10 @@ class ImagActorCritic(nj.Module):
         disc = act_space.discrete
         self.grad = config.actor_grad_disc if disc else config.actor_grad_cont
 
-        if config.actor.moe_enabled:
+        if config.moe.actor_moe:
             print("[MoE] Using MoE actor")
             self.actor = moe.MoE(
                 name="actor",
-                dim=config.rssm.deter,
                 shape=act_space.shape,
                 **config.moe,
                 **config.actor,
@@ -388,10 +386,10 @@ class VFunction(nj.Module):
         self.rewfn = rewfn
         self.config = config
 
-        if config.critic.moe_enabled:
+        if config.moe.critic_moe:
             print("[MoE] Using MoE critic")
-            self.net = moe.MoE(name="net", shape=(), dim=config.rssm.deter, **config.moe, **config.critic)
-            self.slow = moe.MoE(name="slow", shape=(), dim=config.rssm.deter, **config.moe, **config.critic)
+            self.net = moe.MoE(name="net", shape=(), **config.moe, **config.critic)
+            self.slow = moe.MoE(name="slow", shape=(), **config.moe, **config.critic)
         else:
             self.net = nets.MLP((), name="net", dims="deter", **config.critic)
             self.slow = nets.MLP((), name="slow", dims="deter", **config.critic)
