@@ -18,7 +18,8 @@ defaults:
     n_routed_experts: 4
     n_shared_experts: 1
     n_expert_groups: 1
-    top_k: 2
+    soft_gating: True
+    top_k: 1
     top_k_groups: 1
     score_func: 'softmax'
     route_scale: 1.0
