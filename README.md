@@ -1,3 +1,29 @@
+# ScenarioRunner
+
+**ScenarioRunner** is an open-source library that enables you to define and execute traffic scenarios in [CARLA](https://carla.org/), fully compliant with the [OpenSCENARIO](http://www.openscenario.org/) standard. [CARLA Leaderboard](https://leaderboard.carla.org/) is built upon `ScenarioRunner`.
+
+## Installation
+
+```bash
+git clone --branch srunner https://github.com/gaodechen/car-dreamer.git
+```
+
+Add environment variables to your `./bashrc`.
+
+```bash
+export CARLA_ROOT=/path/to/your/carla/installation
+export SCENARIO_RUNNER_ROOT=/path/to/scenario_runner
+export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI/carla
+```
+
+```bash
+./CarlaUE4.sh
+# Launch a scenario
+python scenario_runner.py --scenario SignalizedJunctionLeftTurn_1 --reloadWorld
+# Launch manual control
+python manual_control.py
+```
+
 # 🌍 Learn to Drive in "Dreams": CarDreamer 🚗
 
 <div align="center">
