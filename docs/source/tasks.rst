@@ -75,7 +75,8 @@ Here is the descriptions of some common configurations in ``car_dreamer/configs/
         * ``shape`` (default: ``[128, 128, 3]``): the shape of the birdeye, should follow the form of ``[n, n, 3]``.
         * ``obs_range`` (default: ``32``): the range of the birdeye in meter (in unit of CARLA).
         * ``ego_offset`` (default: ``12``): the offset of the ego vehicle to the bottom of the birdeye in meter (in unit of CARLA).
-        * ``camera_fov`` (default: ``150``): the field of view of the camera.
+        * ``sight_fov`` (default: ``150``): the field of view of the camera.
+        * ``sight_range`` (default: ``32``): the maximum visible distance
         * ``observability`` (default: ``full``): can be ``full, recursive_fov, fov``. ``full`` means all background vehicles are visible. ``fov`` means only vehicles in the field of view are visible. ``recursive_fov`` means vehicles in the fov of vehicles in ego's fov are also visible.
         * ``color_by_obs``: whether to color the vehicles by observability.
         * ``waypoint_obs``: can be ``neighbor, visible, all``. It controls whether to render the intended waypoints of background vehicles. ``neighbor`` means only the neighboring vehicle's waypoint is rendered. ``visible`` means only visible vehicles' waypoints are rendered. ``all`` means all vehicles' waypoints are rendered.
@@ -100,6 +101,8 @@ Here is the descriptions of some common configurations in ``car_dreamer/configs/
       If ``True``, ``len(discrete_acc) * len(discrete_steer)`` is the size of the action space.
     * ``discrete_acc`` (default: ``[-2.0, 0.0, 2.0]``): the discrete values for acceleration.
     * ``discrete_steer`` (default: ``[-0.6, -0.2, 0.0, 0.2, 0.6]``): the discrete values for steering.
+    * ``continuous_acc`` (default: ``[-3.0, 3.0]``): the continuous value range for acceleration.
+    * ``continuous_steer`` (default: ``[-1.0, 1.0]``): the continuous value range for steering.
 
 Tasks and Environments
 --------------------------
@@ -144,6 +147,9 @@ Here is a list of available environments and their supported tasks and configura
    :show-inheritance:
 
 .. autoclass:: car_dreamer.CarlaTrafficLightsEnv
+   :show-inheritance:
+
+.. autoclass:: car_dreamer.CarlaFollowEnv
    :show-inheritance:
 
 .. note::
