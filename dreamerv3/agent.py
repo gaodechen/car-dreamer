@@ -18,7 +18,7 @@ logger.addFilter(CheckTypesFilter())
 
 from . import behaviors, jaxagent, jaxutils, nets
 from . import ninjax as nj
-from . import moe
+from . import dense_moe as moe
 
 
 @jaxagent.Wrapper
@@ -293,6 +293,7 @@ class ImagActorCritic(nj.Module):
             print("[MoE] Using MoE actor")
             self.actor = moe.MoE(
                 name="actor",
+                dims="deter",
                 shape=act_space.shape,
                 **config.moe,
                 **config.actor,

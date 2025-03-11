@@ -4,21 +4,29 @@ defaults:
   task: dummy_disc
   logdir: /dev/null
   replay: uniform
-  replay_size: 1e6
+  replay_size: 1e5
   replay_online: False
   eval_dir: ""
   filter: ".*"
 
   moe:
-    reward_moe: True
+    reward_moe: False
     actor_moe: True
-    critic_moe: True
+    critic_moe: False
+    moe_dim: 1024
+    n_routed_experts: 2
+    n_shared_experts: 1
+    score_func: 'softmax'
+    route_scale: 1.0
+
+  top_k_moe:
+    actor_moe: True
+    critic_moe: False
     moe_dim: 1536 # 512 + 1024
     moe_inter_dim: 1024
     n_routed_experts: 4
     n_shared_experts: 1
     n_expert_groups: 1
-    soft_gating: True
     top_k: 1
     top_k_groups: 1
     score_func: 'softmax'
