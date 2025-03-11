@@ -13,8 +13,7 @@ def set_mask(row_mask, row_indices):
 
 class MoEGate(nj.Module):
     """
-    MoEGate can do either soft gating (a continuous mixture over all experts)
-    or the original top_k gating (discrete and non-differentiable).
+    MoEGate with top_k gating.
 
     Args:
       moe_dim: Dimensionality of the input features.
@@ -38,7 +37,6 @@ class MoEGate(nj.Module):
         score_func="softmax",
         route_scale=1.0,
         use_bias=False,
-        soft_gating=False,
     ):
         self._moe_dim = moe_dim
         self._n_routed_experts = n_routed_experts
@@ -48,17 +46,15 @@ class MoEGate(nj.Module):
         self._score_func = score_func
         self._route_scale = route_scale
         self._use_bias = use_bias and moe_dim >= 4096
-        self._soft_gating = soft_gating
 
     def __call__(self, x):
         """
+        x: shape [B*T, D]
+
         Returns:
-          weights: either shape [B, n_routed_experts] in soft-gating mode,
-                   or shape [B, top_k] in hard-gating mode
-          indices: either None in soft-gating mode,
-                   or shape [B, top_k] (the chosen experts) in hard-gating mode
+          weights: [B*T, top_k] in hard-gating mode
+          indices: shape [B*T, top_k] (the chosen experts) in hard-gating mode
         """
-        # Compute gating logits
         weight = self.get("weight", jnp.zeros, (self._n_routed_experts, self._moe_dim))
         logits = jnp.dot(x, weight.T)
 
@@ -72,30 +68,23 @@ class MoEGate(nj.Module):
             scores = jax.nn.sigmoid(logits)
 
         if self._n_expert_groups > 1:
-            scores_g = scores.reshape(x.shape[0], self._n_expert_groups, -1)
+            B_times_T = scores.shape[0]
+            scores_g = scores.reshape(B_times_T, self._n_expert_groups, -1)
             if self._use_bias:
-                top_2_scores = jax.lax.top_k(scores_g, 2)[0]
-                group_scores = jnp.sum(top_2_scores, axis=-1)
+                top_2_scores = jax.lax.top_k(scores_g, 2)[0]  # shape [B*T, n_groups, 2]
+                group_scores = jnp.sum(top_2_scores, axis=-1)  # [B*T, n_groups]
             else:
-                group_scores = jnp.max(scores_g, axis=-1)
-            indices_g = jax.lax.top_k(group_scores, self._top_k_groups)[1]
-            mask = jax.vmap(set_mask)(jnp.zeros_like(scores_g[..., 0]), indices_g)
-            scores_g = (scores_g * mask[..., None]).reshape(x.shape[0], -1)
+                group_scores = jnp.max(scores_g, axis=-1)  # [B*T, n_groups]
+            indices_g = jax.lax.top_k(group_scores, self._top_k_groups)[1]  # [B*T, top_k_groups]
+            mask = jax.vmap(set_mask)(jnp.zeros_like(group_scores), indices_g)
+            # shape for mask is [B*T, n_groups], expand last dim for experts
+            scores_g = (scores_g * mask[..., None]).reshape(B_times_T, -1)
             scores = scores_g
 
-        if self._soft_gating:
-            if self._score_func == "sigmoid":
-                row_sum = jnp.sum(scores, axis=-1, keepdims=True) + 1e-8
-                scores = scores / row_sum
-
-            weights = scores * self._route_scale
-            indices = None
-            return weights, indices
-
         top_scores, indices = jax.lax.top_k(scores, self._top_k)
-
         if self._score_func == "sigmoid":
-            top_scores = top_scores / (jnp.sum(top_scores, axis=-1, keepdims=True) + 1e-8)
+            norm = jnp.sum(top_scores, axis=-1, keepdims=True) + 1e-8
+            top_scores = top_scores / norm
 
         top_scores = top_scores * self._route_scale
         return top_scores, indices
@@ -123,19 +112,22 @@ class MoEExpert(nj.Module):
         }
 
     def __call__(self, x):
+        # x: shape [B*T, D]
         if self._symlog_inputs:
             x = jaxutils.symlog(x)
 
         w1 = self.get("w1", nets.Linear, self._inter_dim, **self._linear_kw)(x)
         w3 = self.get("w3", nets.Linear, self._inter_dim, **self._linear_kw)(x)
         out = self.get("w2", nets.Linear, self._moe_dim, **self._linear_kw)(jax.nn.silu(w1) * w3)
-        return out
+        return out  # shape [B*T, moe_dim]
 
 
 class MoE(nj.Module):
     """
     Full MoE layer that uses MoEGate to get gating weights, runs that many experts,
     and optionally has shared_expert(s).
+
+    Flatten [B, T, D] => [B*T, D]
     """
 
     def __init__(
@@ -150,7 +142,6 @@ class MoE(nj.Module):
         top_k_groups=1,
         score_func="softmax",
         route_scale=1.0,
-        soft_gating=False,
         inputs=["tensor"],
         dims=None,
         **kw,
@@ -167,7 +158,6 @@ class MoE(nj.Module):
         self._dist = {k: v for k, v in kw.items() if k in distkeys}
 
         print(f"[MoE] Created MoE with {n_routed_experts} experts and {n_shared_experts} shared experts")
-        print(f"[MoE]  - gating: {'soft' if soft_gating else f'top_k={top_k}'}")
         print(f"[MoE]  - output dist config: {self._dist}")
 
         self._gate_config = dict(
@@ -178,45 +168,58 @@ class MoE(nj.Module):
             top_k_groups=top_k_groups,
             score_func=score_func,
             route_scale=route_scale,
-            soft_gating=soft_gating,
         )
 
     def _out(self, name, shape, x):
         return self.get(f"dist_{name}", nets.Dist, shape, **self._dist)(x)
 
     def __call__(self, x):
-        x = self._inputs(x)
+        """
+        x can be shape [B, T, D] or just [B, D]. We'll flatten the leading dims
+        into one if needed so gating has shape [B*T, D].
+        """
+        x = self._inputs(x)  # e.g. shape [B, T, D]
         x = jaxutils.cast_to_compute(x)
 
-        # Gating
-        weights, indices = self.get("gate", MoEGate, **self._gate_config)(x)
+        # Flatten all but last dimension:
+        leading_shape = x.shape[:-1]  # e.g. (B, T)
+        d = x.shape[-1]  # D
+        x2 = x.reshape((-1, d))  # [B*T, D]
 
+        # Gating
+        weights, indices = self.get("gate", MoEGate, **self._gate_config)(x2)
+        # weights shape: [B*T, top_k]
+        # indices shape: [B*T, top_k]
+
+        # Build/fetch experts
         experts = []
         for i in range(self._n_routed_experts):
             expert = self.get(f"expert_{i}", MoEExpert, self._moe_dim, self._moe_inter_dim, **self._kw)
             experts.append(expert)
 
-        if indices is None:
-            all_outs = []
-            for i, expert in enumerate(experts):
-                out_i = expert(x).astype(f32)  # [B, D]
-                w_i = weights[:, i, None]  # [B, 1]
-                all_outs.append(out_i * w_i)
-            y = jnp.sum(jnp.stack(all_outs, axis=0), axis=0)
-        else:
-            y = jnp.zeros_like(x, dtype=f32)
+        # Hard gating => shape [B*T, top_k], indices [B*T, top_k]
+        y2 = jnp.zeros_like(x2, dtype=f32)
 
-            for i in range(self._n_routed_experts):
-                mask = jnp.any(indices == i, axis=-1)  # [B]
-                masked_input = jnp.where(mask[..., None], x, 0.0)
-                out = experts[i](masked_input).astype(f32)
-                multiplier = jnp.sum(jnp.where(indices == i, weights, 0.0), axis=-1)
-                y += out * multiplier[..., None]
+        for i in range(self._n_routed_experts):
+            # mask shape [B*T], True where this example picks expert i
+            mask = jnp.any(indices == i, axis=-1)
+            masked_input = jnp.where(mask[..., None], x2, 0.0)
+            out_i = experts[i](masked_input).astype(f32)
+            # gather gating weights for expert i
+            multiplier = jnp.sum(jnp.where(indices == i, weights, 0.0), axis=-1)
+            # broadcast that multiplier
+            y2 += out_i * multiplier[..., None]
 
+        # Optionally add shared experts
         if self._n_shared_experts > 0:
             shared_expert = self.get("shared_expert", MoEExpert, self._moe_dim, self._moe_inter_dim * self._n_shared_experts, **self._kw)
-            y += shared_expert(x)
+            # shape [B*T, D]
+            y2 += shared_expert(x2)
 
+        # Reshape back to [B, T, D] or [B, D]
+        y = y2.reshape(leading_shape + (self._moe_dim,))
+
+        # Possibly pass to a distribution head
         if self._shape is None:
             return y
         elif isinstance(self._shape, tuple):
