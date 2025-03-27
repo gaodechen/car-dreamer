@@ -57,6 +57,8 @@ class FollowLeadingVehicle(BasicScenario):
         If randomize is True, the scenario parameters are randomized
         """
 
+        config.print_all()
+        
         self._map = CarlaDataProvider.get_map()
         self._first_vehicle_location = 25
         self._first_vehicle_speed = 10

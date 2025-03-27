@@ -47,6 +47,8 @@ from srunner.scenariomanager.timer import RouteTimeoutBehavior
 from srunner.tools.route_parser import RouteParser, DIST_THRESHOLD
 from srunner.tools.route_manipulation import interpolate_trajectory
 
+from rollout import run_monte_carlo_simulation
+
 
 SECONDS_GIVEN_PER_METERS = 0.4
 
@@ -80,6 +82,15 @@ class RouteScenario(BasicScenario):
         super(RouteScenario, self).__init__(
             config.name, [ego_vehicle], config, world, debug_mode > 1, False, criteria_enable
         )
+        
+        # ego_vehicle = ego_vehicle[0]  # Assume first vehicle is ego
+        # background_vehicles = [v for v in world.get_actors().filter('vehicle.*') if v.id != ego_vehicle.id]
+        # print(ego_vehicle)
+        # bg_speeds = [15, 25, 30]
+        # collision_rate, _ = run_monte_carlo_simulation(world, ego_vehicle, background_vehicles, bg_speeds)
+
+        # print(collision_rate)
+        # print(["="]*50)
 
     def _get_route(self, config):
         """

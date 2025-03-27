@@ -108,3 +108,22 @@ class ScenarioConfiguration(object):
         self.friction = None
         self.subtype = None
         self.route_var_name = None
+
+    def print_all(self):
+        print("trigger_points:", self.trigger_points[0].location)
+        print("ego_vehicles model:", self.ego_vehicles[0].model)
+        print("ego_vehicles transform:", self.ego_vehicles[0].transform)
+        print("ego_vehicles speed:", self.ego_vehicles[0].speed)
+        print("ego_vehicles random_location:", self.ego_vehicles[0].random_location)
+        print("ego_vehicles args:", self.ego_vehicles[0].args)
+        # print("other_actors:", self.other_actors)
+        # print("other_parameters:", self.other_parameters)
+        # print("town:", self.town)
+        # print("name:", self.name)
+        # print("type:", self.type)
+        # print("route:", self.route)
+        # print("agent:", self.agent)
+        # print("weather:", self.weather)
+        # print("friction:", self.friction)
+        # print("subtype:", self.subtype)
+        # print("route_var_name:", self.route_var_name)

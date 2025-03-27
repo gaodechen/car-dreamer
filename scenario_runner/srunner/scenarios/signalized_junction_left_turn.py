@@ -162,6 +162,7 @@ class SignalizedJunctionLeftTurn(JunctionLeftTurn):
     def __init__(self, world, ego_vehicles, config, randomize=False, debug_mode=False, criteria_enable=True,
                  timeout=80):
         super().__init__(world, ego_vehicles, config, randomize, debug_mode, criteria_enable, timeout)
+        print([ego.id for ego in ego_vehicles])
 
     def _initialize_actors(self, config):
         """
