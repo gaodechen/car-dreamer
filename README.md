@@ -20,6 +20,10 @@ export PYTHONPATH=$PYTHONPATH:${CARLA_ROOT}/PythonAPI/carla
 ./CarlaUE4.sh
 # Launch a scenario
 python scenario_runner.py --scenario SignalizedJunctionLeftTurn_1 --reloadWorld
+# Run the scenario by route
+python scenario_runner.py --route /home/ucdavis/srunner/car-dreamer/scenario_runner/srunner/data/routes_town10.xml --agent srunner/autoagents/npc_agent.py
+# To run the MC simulation, add extra args "--monteCarlo"
+python scenario_runner.py --route /home/ucdavis/srunner/car-dreamer/scenario_runner/srunner/data/routes_town10.xml --agent srunner/autoagents/npc_agent.py --monteCarlo
 # Launch manual control
 python manual_control.py
 ```

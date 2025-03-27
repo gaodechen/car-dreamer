@@ -30,6 +30,9 @@ import time
 import json
 import pkg_resources
 
+from mc_simulation import run_monte_carlo_simulation, visualize_trajectories
+import xml.etree.ElementTree as ET
+
 import carla
 
 from srunner.scenarioconfigs.openscenario_configuration import OpenScenarioConfiguration
@@ -355,6 +358,133 @@ class ScenarioRunner(object):
             return False
 
         return True
+    
+    def get_vehicles_positions_from_config(self, route_file, route_id=None):
+        """
+        Extracts the initial positions of the ego vehicle and background vehicles
+        from the route configuration XML.
+        
+        Args:
+            route_file (str): Path to the route XML file
+            route_id (str, optional): Specific route ID to extract. If None, uses the first route.
+            
+        Returns:
+            tuple: (ego_transform, bg_transforms, bg_speeds)
+                - ego_transform: carla.Transform object for the ego vehicle
+                - bg_transforms: list of carla.Transform objects for background vehicles
+                - bg_speeds: list of speeds (float) for background vehicles
+        """
+        tree = ET.parse(route_file)
+        root = tree.getroot()
+        
+        # Find the specified route or default to the first one
+        route = None
+        if route_id:
+            for r in root.findall('route'):
+                if r.get('id') == route_id:
+                    route = r
+                    break
+        else:
+            route = root.find('route')
+        
+        if route is None:
+            raise ValueError(f"Route ID {route_id} not found in configuration file")
+        
+        # Get waypoints for the ego vehicle
+        waypoints = route.find('waypoints')
+        if waypoints is None or len(waypoints) == 0:
+            raise ValueError("No waypoints found for ego vehicle in route configuration")
+        
+        # Extract the first waypoint for the ego vehicle
+        first_position = waypoints[0]
+        ego_x = float(first_position.get('x'))
+        ego_y = float(first_position.get('y'))
+        ego_z = float(first_position.get('z'))
+        
+        # Create a carla.Transform for the ego vehicle
+        # Default rotation is 0 if not specified
+        ego_yaw = 0.0
+        ego_transform = carla.Transform(
+            carla.Location(x=ego_x, y=ego_y, z=ego_z),
+            carla.Rotation(yaw=ego_yaw)
+        )
+        
+        # Get initial positions for background vehicles from scenarios
+        bg_transforms = []
+        bg_speeds = []  # Default speed for background vehicles (m/s)
+        default_bg_speed = 10.0  # 10 m/s ~ 36 km/h
+        
+        # Look for scenario trigger points to use as background vehicle positions
+        scenarios = route.find('scenarios')
+        if scenarios is not None:
+            for scenario in scenarios.findall('scenario'):
+                trigger_point = scenario.find('trigger_point')
+                if trigger_point is not None:
+                    x = float(trigger_point.get('x'))
+                    y = float(trigger_point.get('y'))
+                    z = float(trigger_point.get('z'))
+                    
+                    # Get yaw if available, otherwise default to 0
+                    yaw = 0.0
+                    if 'yaw' in trigger_point.attrib:
+                        yaw = float(trigger_point.get('yaw'))
+                    
+                    # Create a carla.Transform for this background vehicle
+                    bg_transform = carla.Transform(
+                        carla.Location(x=x, y=y, z=z),
+                        carla.Rotation(yaw=yaw)
+                    )
+                    
+                    bg_transforms.append(bg_transform)
+                    bg_speeds.append(default_bg_speed)
+        
+        return ego_transform, bg_transforms, bg_speeds
+
+    def _run_monte_carlo_simulation(self, config):
+        """
+        Run Monte Carlo simulation to predict collision rates based on XML configuration,
+        not using actual vehicles from the world.
+        """
+        # Make sure we have loaded the world (needed for map information)
+        if self.world is None:
+            return False
+        
+        print("Running Monte Carlo simulation to predict collision rates...")
+        
+        # Determine the route file path based on config
+        if self._args.route:
+            route_file = self._args.route
+            route_id = self._args.route_id if hasattr(self._args, 'route_id') else None
+        else:
+            print("Monte Carlo simulation currently only supports route")
+            return False
+        
+        try:
+            # Get vehicle positions from the XML configuration
+            ego_transform, bg_transforms, bg_speeds = self.get_vehicles_positions_from_config(route_file, route_id)
+            
+            # If there are no background vehicles, we can't run a meaningful simulation
+            if not bg_transforms:
+                print("No background vehicles found in the configuration for Monte Carlo simulation")
+                return False
+            
+            print(f"Running simulation with 1 ego vehicle and {len(bg_transforms)} background vehicles")
+            
+            # Run the Monte Carlo simulation
+            collision_rate, bg_trajectories = run_monte_carlo_simulation(
+                self.world, ego_transform, bg_transforms, bg_speeds
+            )
+            
+            # Optionally visualize the trajectories
+            if self._args.debug:
+                visualize_trajectories(self.world, ego_transform, bg_transforms, bg_speeds)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error in Monte Carlo simulation: {e}")
+            traceback.print_exc()
+            return False
 
     def _load_and_run_scenario(self, config):
         """
@@ -386,6 +516,11 @@ class ScenarioRunner(object):
         print("Preparing scenario: " + config.name)
         try:
             self._prepare_ego_vehicles(config.ego_vehicles)
+
+            # Run Monte Carlo simulation
+            if hasattr(self._args, 'monteCarlo') and self._args.monteCarlo:
+                self._run_monte_carlo_simulation(config)
+
             if self._args.openscenario:
                 scenario = OpenScenario(world=self.world,
                                         ego_vehicles=self.ego_vehicles,
@@ -552,6 +687,7 @@ def main():
     # pylint: disable=line-too-long
     parser = argparse.ArgumentParser(description=description,
                                      formatter_class=RawTextHelpFormatter)
+    parser.add_argument('--monteCarlo', action="store_true", help='Run Monte Carlo simulation to predict collision rates')
     parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + VERSION)
     parser.add_argument('--host', default='127.0.0.1',
                         help='IP of the host server (default: localhost)')
