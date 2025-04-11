@@ -21,6 +21,7 @@ from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
 from srunner.scenariomanager.result_writer import ResultOutputProvider
 from srunner.scenariomanager.timer import GameTime
 from srunner.scenariomanager.watchdog import Watchdog
+from srunner.tools.spectator_recorder import SpectatorRecorder
 
 
 class ScenarioManager(object):
@@ -41,7 +42,7 @@ class ScenarioManager(object):
     5. If needed, cleanup with manager.stop_scenario()
     """
 
-    def __init__(self, debug_mode=False, sync_mode=False, timeout=2.0):
+    def __init__(self, debug_mode=False, sync_mode=False, timeout=2.0, record_bev=True):
         """
         Setups up the parameters, which will be filled at load_scenario()
 
@@ -56,6 +57,8 @@ class ScenarioManager(object):
         self._sync_mode = sync_mode
         self._watchdog = None
         self._timeout = timeout
+        self._record_bev = record_bev
+        self._spectator_recorder = None
 
         self._running = False
         self._timestamp_last_run = 0.0
@@ -80,7 +83,10 @@ class ScenarioManager(object):
         """
         This function triggers a proper termination of a scenario
         """
-
+        if self._spectator_recorder:
+            self._spectator_recorder.clean_up()
+            self._spectator_recorder = None
+        
         if self._watchdog is not None:
             self._watchdog.stop()
             self._watchdog = None
@@ -106,6 +112,15 @@ class ScenarioManager(object):
         self.scenario_tree = self.scenario.scenario_tree
         self.ego_vehicles = scenario.ego_vehicles
         self.other_actors = scenario.other_actors
+        
+        if self._record_bev and self.ego_vehicles:
+            world = CarlaDataProvider.get_world()
+            if world:
+                self._spectator_recorder = SpectatorRecorder(
+                    world, 
+                    self.ego_vehicles[0],
+                    height=15.0  # Adjust height as needed
+                )
 
         # To print the scenario tree uncomment the next line
         # py_trees.display.render_dot_tree(self.scenario_tree)
@@ -124,8 +139,11 @@ class ScenarioManager(object):
         self._watchdog = Watchdog(float(self._timeout))
         self._watchdog.start()
         self._running = True
-
+        
         while self._running:
+            if self._spectator_recorder:
+                self._spectator_recorder.start_recording()
+
             timestamp = None
             world = CarlaDataProvider.get_world()
             if world:
@@ -164,6 +182,9 @@ class ScenarioManager(object):
             # Update game time and actor information
             GameTime.on_carla_tick(timestamp)
             CarlaDataProvider.on_carla_tick()
+            
+            if self._spectator_recorder:
+                self._spectator_recorder.update()
 
             if self._agent is not None:
                 ego_action = self._agent()  # pylint: disable=not-callable
