@@ -125,19 +125,19 @@ def visualize_trajectories(world, ego_transform, bg_transforms, bg_speeds):
     
     plt.scatter(ego_transform.location.x, ego_transform.location.y, color='black', marker='o', s=120, label="Ego Start")
     
-    param_text = (f"NUM_SIMULATIONS: {NUM_SIMULATIONS}\n"
-                  f"EGO_SPEED_RANGE: {EGO_SPEED_RANGE} m/s\n"
-                  f"TIME_STEP: {TIME_STEP} s\n"
-                  f"SIM_DURATION: {SIM_DURATION} s\n"
-                  f"COLLISION_DISTANCE: {COLLISION_DISTANCE} m\n"
-                  f"BG Speeds: {bg_speeds} m/s")
+    # param_text = (f"NUM_SIMULATIONS: {NUM_SIMULATIONS}\n"
+    #               f"EGO_SPEED_RANGE: {EGO_SPEED_RANGE} m/s\n"
+    #               f"TIME_STEP: {TIME_STEP} s\n"
+    #               f"SIM_DURATION: {SIM_DURATION} s\n"
+    #               f"COLLISION_DISTANCE: {COLLISION_DISTANCE} m\n"
+    #               f"BG Speeds: {bg_speeds} m/s")
 
-    plt.text(0.05, 0.95, param_text, transform=plt.gca().transAxes,
-             fontsize=12, verticalalignment='top', horizontalalignment='left',
-             bbox=dict(facecolor='white', alpha=0.8, edgecolor='black'))
+    # plt.text(0.05, 0.95, param_text, transform=plt.gca().transAxes,
+    #          fontsize=12, verticalalignment='top', horizontalalignment='left',
+    #          bbox=dict(facecolor='white', alpha=0.8, edgecolor='black'))
     
-    plt.text(0.05, 0.05, f"Collision Rate: {collision_rate:.2%}", transform=plt.gca().transAxes,
-             fontsize=14, color='red', bbox=dict(facecolor='white', alpha=0.8, edgecolor='black'))
+    # plt.text(0.05, 0.05, f"Collision Rate: {collision_rate:.2%}", transform=plt.gca().transAxes,
+    #          fontsize=14, color='red', bbox=dict(facecolor='white', alpha=0.8, edgecolor='black'))
 
     plt.legend()
     plt.xlabel("X Position")
