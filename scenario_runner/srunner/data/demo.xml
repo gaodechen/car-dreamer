@@ -19,14 +19,14 @@
       <scenarios>
          <scenario name="DynamicObjectCrossing_1" type="DynamicObjectCrossing">
             <trigger_point x="19.4" y="66.3" z="0.0" yaw="-179.9"/>
-            <distance value="35"/>
+            <distance value="10"/>
             <direction value="right"/>
             <blocker_model value="static.prop.advertisement"/>
             <crossing_angle value="7"/>
          </scenario>
          <scenario name="DynamicObjectCrossing_2" type="DynamicObjectCrossing">
             <trigger_point x="-41.8" y="-3.3" z="0.0" yaw="-90.2"/>
-            <distance value="35"/>
+            <distance value="10"/>
             <direction value="right"/>
             <blocker_model value="static.prop.advertisement"/>
             <crossing_angle value="8"/>

@@ -4,10 +4,13 @@ import numpy as np
 import xml.etree.ElementTree as ET
 import matplotlib.pyplot as plt
 import carla
+import sys
+sys.path.append('..')
 from srunner.tools.route_parser import RouteParser
 from srunner.tools.route_manipulation import interpolate_trajectory
 from srunner.tools.scenario_parser import ScenarioConfigurationParser
 from srunner.scenariomanager.carla_data_provider import CarlaDataProvider
+from mc_simulation import run_monte_carlo_simulation, visualize_trajectories, visualize_combined
 import random
 import numpy as np
 import math 
@@ -17,6 +20,82 @@ ANGLE_THRESHOLD = 10
 
 import matplotlib.pyplot as plt
 import numpy as np
+
+def extract_scenario_inputs(xml_file, world, bg_speed=2.0):
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+
+    ego_transforms = []
+    bg_transforms = []
+    bg_speeds = []
+
+    for route in root.findall('./route'):
+        for scenarios in route.findall('./scenarios'):
+            for scenario in scenarios.findall('./scenario'):
+                trigger_elem = scenario.find('./trigger_point')
+                if trigger_elem is None:
+                    continue
+
+                # --- Ego Transform ---
+                ego_loc = carla.Location(
+                    x=float(trigger_elem.get('x')),
+                    y=float(trigger_elem.get('y')),
+                    z=float(trigger_elem.get('z', 0.0))
+                )
+                yaw = float(trigger_elem.get('yaw'))
+                ego_rot = carla.Rotation(yaw=yaw)
+                ego_transform = carla.Transform(ego_loc, ego_rot)
+
+                # --- Parameters ---
+                direction = scenario.get('direction', 'right')
+                crossing_angle = float(scenario.get('crossing_angle', '0'))
+
+                distance_elem = scenario.find('./distance')
+                forward_distance = float(distance_elem.get('value')) if distance_elem is not None else 12.0
+
+                # --- Get forward waypoint ---
+                wmap = world.get_map()
+                waypoint = wmap.get_waypoint(ego_loc)
+                remaining_dist = forward_distance
+                while remaining_dist > 0:
+                    next_wps = waypoint.next(remaining_dist)
+                    if not next_wps:
+                        break
+                    waypoint = next_wps[0]
+                    remaining_dist = 0
+
+                sidewalk_wp = waypoint
+
+                # --- Lateral offset ---
+                offset_dist = 0.5
+                if direction == "left":
+                    offset_dist *= -1
+
+                lateral_vec = sidewalk_wp.transform.get_right_vector()
+                base_loc = sidewalk_wp.transform.location + carla.Location(
+                    x=lateral_vec.x * offset_dist,
+                    y=lateral_vec.y * offset_dist,
+                    z=1.2
+                )
+
+                # --- Rotation from lateral vector ---
+                if direction == "right":
+                    crossing_vec = carla.Vector3D(-lateral_vec.x, -lateral_vec.y, -lateral_vec.z)
+                else:
+                    crossing_vec = lateral_vec
+
+                crossing_yaw = math.degrees(math.atan2(crossing_vec.y, crossing_vec.x))
+                crossing_yaw += crossing_angle
+                bg_rotation = carla.Rotation(yaw=crossing_yaw)
+
+                bg_transform = carla.Transform(base_loc, bg_rotation)
+
+                # --- Append results ---
+                ego_transforms.append(ego_transform)
+                bg_transforms.append(bg_transform)
+                bg_speeds.append(bg_speed)
+
+    return ego_transforms, bg_transforms, bg_speeds
 
 def visualize_from_file(xml_file, save_path='visualization.png'):
 
@@ -75,8 +154,6 @@ def visualize_from_file(xml_file, save_path='visualization.png'):
     plt.savefig(save_path, dpi=300)
     print(f"Visualization saved as '{save_path}'.")
     plt.show()
-
-
 
 def compute_path_lengths_locations(waypoints):
     seg_lengths = [p1.distance(p2) for p1, p2 in zip(waypoints[:-1], waypoints[1:])]
@@ -273,7 +350,7 @@ if __name__ == "__main__":
     parser.add_argument('--output_file', help='Output XML file', default='output.xml')
     parser.add_argument('--visualization_file', help='Visualization file', default='mutation_visualization.png')
     parser.add_argument('--visualize', action="store_true", help='Whether to visualize', default='mutation_visualization.png')
-    parser.add_argument('--mutate', action="store_true", help='Mutate exising trigger points from configuration', default=False)
+    parser.add_argument('--mutate', action="store_true", help='Mutate exising trigger points from configuration', default=True)
     parser.add_argument('--generate', action="store_true", help='Generate new trigger points', default=False)
     parser.add_argument('--noise_level', type=float, help='Noise level (default: 10)', default=10)
     
@@ -305,7 +382,17 @@ if __name__ == "__main__":
                     print(f"Generated trigger point: {tp.location}, yaw: {tp.rotation.yaw}")
             
             write_trigger_points_to_xml(args.input_file, args.output_file, trigger_points)
+
+        world = client.load_world(config.town)
+        world = client.get_world()
+        ego_transforms, bg_transforms, bg_speeds = extract_scenario_inputs(args.input_file, world, bg_speed=2.0)
+        # visualize_trajectories(world, ego_transforms, bg_transforms, bg_speeds, mode='straight')
         
     if args.visualize:
-        visualize_from_file(args.output_file, save_path=args.visualization_file)
+        all_collision_rate = visualize_combined(
+            args.input_file, world, ego_transforms, bg_transforms, bg_speeds,
+            save_path=args.visualization_file, mode='straight',
+        )
+
+
 
